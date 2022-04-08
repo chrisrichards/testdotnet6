@@ -1,18 +1,19 @@
-FROM mcr.microsoft.com/dotnet/aspnet:6.0-alpine AS base
-
-RUN addgroup -S dotnet && adduser -S dotnet -G dotnet \
-    && apk add --no-cache dumb-init
-
 FROM mcr.microsoft.com/dotnet/sdk:6.0-alpine AS build
+WORKDIR /source
 
-ENV NODE_VERSION=16.13.1
-RUN curl -fsSLO --compressed "https://unofficial-builds.nodejs.org/download/release/v$NODE_VERSION/node-v$NODE_VERSION-linux-x64-musl.tar.xz"; \
-        tar -xJf "node-v$NODE_VERSION-linux-x64-musl.tar.xz" -C /usr/local --strip-components=1 --no-same-owner \
-          && ln -s /usr/local/bin/node /usr/local/bin/nodejs;
+# copy csproj and restore as distinct layers
+COPY *.sln .
+COPY src/*.csproj ./src/
+RUN dotnet restore
 
+# copy everything else and build app
+COPY src/. ./src/
+WORKDIR /source/src
+RUN dotnet publish -c release -o /app --self-contained false --no-restore
+
+# final stage/image
+FROM mcr.microsoft.com/dotnet/aspnet:6.0-alpine AS base
 WORKDIR /app
-RUN chown dotnet /app
-COPY --chown=dotnet:dotnet-group --from=publish /app/publish .
+COPY --from=build /app ./
 
-USER dotnet
-CMD ["dumb-init", "dotnet", "testdotnet6.dll"]
+ENTRYPOINT ["./testdotnet6"]
